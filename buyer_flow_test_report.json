@@ -1,0 +1,13 @@
+{
+  "base_url": "http://localhost:8000/api",
+  "email": "buyer+8e5a83@example.com",
+  "buy_request_id": "7cbce9bc-ff84-4645-9b0d-92a6f981a473",
+  "offers_payload": {
+    "items": [],
+    "total": 0
+  },
+  "orders_payload": {
+    "buyer_orders": [],
+    "seller_orders": []
+  }
+}

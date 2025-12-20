@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { baseApi } from './api/baseApi';
 import authReducer from './authSlice';
+import cartReducer from './cartSlice';
 
 // Import all API slices to ensure they inject their endpoints
 import './api/auth.api';
@@ -39,6 +40,7 @@ import './api/webhooks.api';
 export const store = configureStore({
   reducer: {
     auth: authReducer,
+    cart: cartReducer,
     [baseApi.reducerPath]: baseApi.reducer,
   },
   middleware: (getDefaultMiddleware) =>

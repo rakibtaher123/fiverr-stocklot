@@ -7,7 +7,7 @@ import { useRegisterMutation } from '../../store/api/user.api';
 
 
 function Register() {
-  const [registerUser] = useRegisterMutation();
+  const [registerUser, { isLoading }] = useRegisterMutation();
 
 
   const [formData, setFormData] = useState({
@@ -15,7 +15,7 @@ function Register() {
     password: '',
     full_name: '',
     phone: '',
-    role: 'buyer'
+    user_type: 'buyer'
   });
 
   
@@ -28,7 +28,10 @@ function Register() {
     setError('');
     console.log(formData)
     try {
-      const result = await registerUser(formData).unwrap();
+      const payload = {
+        ...formData
+      };
+      const result = await registerUser(payload).unwrap();
       console.log('Registration success:', result);
       setSuccess(true);
       setTimeout(() => navigate('/login'), 2000);
@@ -78,14 +81,19 @@ function Register() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="role" className="text-emerald-800">Account Type</Label>
-                <Select value={formData.role} onValueChange={(value) => setFormData({...formData, role: value})}>
+                <Label htmlFor="user_type" className="text-emerald-800">Account Type</Label>
+                <Select
+                  id="user_type"
+                  value={formData.user_type}
+                  onValueChange={(value) => setFormData({...formData, user_type: value})}
+                >
                   <SelectTrigger className="border-emerald-200 focus:border-emerald-400 focus:ring-emerald-400">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="buyer">Buyer</SelectItem>
                     <SelectItem value="seller">Seller</SelectItem>
+                    <SelectItem value="both">Both Buyer & Seller</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

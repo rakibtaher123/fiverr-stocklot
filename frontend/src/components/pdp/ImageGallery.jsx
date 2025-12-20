@@ -1,19 +1,131 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
-const ImageGallery = ({ media = [] }) => {
+const getSpeciesIcon = (species, title) => {
+  // Normalize input to lowercase for comparison
+  const normalizedSpecies = (species || '').toLowerCase();
+  const normalizedTitle = (title || '').toLowerCase();
+
+  // Check species field first
+  if (normalizedSpecies) {
+    if (normalizedSpecies.includes('chicken') || normalizedSpecies.includes('poultry') || 
+        normalizedSpecies.includes('broiler') || normalizedSpecies.includes('layer') ||
+        normalizedSpecies.includes('chick') || normalizedSpecies.includes('hen') ||
+        normalizedSpecies.includes('rooster') || normalizedSpecies.includes('cockerel')) {
+      return '🐔';
+    }
+    if (normalizedSpecies.includes('cattle') || normalizedSpecies.includes('cow') || 
+        normalizedSpecies.includes('bull') || normalizedSpecies.includes('heifer') ||
+        normalizedSpecies.includes('steer') || normalizedSpecies.includes('beef') ||
+        normalizedSpecies.includes('dairy')) {
+      return '🐄';
+    }
+    if (normalizedSpecies.includes('goat')) {
+      return '🐐';
+    }
+    if (normalizedSpecies.includes('sheep') || normalizedSpecies.includes('lamb') ||
+        normalizedSpecies.includes('ewe') || normalizedSpecies.includes('ram')) {
+      return '🐑';
+    }
+    if (normalizedSpecies.includes('pig') || normalizedSpecies.includes('swine') ||
+        normalizedSpecies.includes('hog') || normalizedSpecies.includes('boar') ||
+        normalizedSpecies.includes('sow')) {
+      return '🐷';
+    }
+    if (normalizedSpecies.includes('duck') || normalizedSpecies.includes('duckling')) {
+      return '🦆';
+    }
+    if (normalizedSpecies.includes('rabbit') || normalizedSpecies.includes('bunny')) {
+      return '🐰';
+    }
+    if (normalizedSpecies.includes('fish') || normalizedSpecies.includes('aquaculture') ||
+        normalizedSpecies.includes('tilapia') || normalizedSpecies.includes('fry') ||
+        normalizedSpecies.includes('fingerling')) {
+      return '🐟';
+    }
+    if (normalizedSpecies.includes('ostrich')) {
+      return '🦃';
+    }
+    if (normalizedSpecies.includes('turkey')) {
+      return '🦃';
+    }
+    if (normalizedSpecies.includes('goose') || normalizedSpecies.includes('geese')) {
+      return '🦢';
+    }
+    if (normalizedSpecies.includes('quail')) {
+      return '🐦';
+    }
+    if (normalizedSpecies.includes('guinea') && normalizedSpecies.includes('fowl')) {
+      return '🐦';
+    }
+  }
+
+  // Fallback to title-based detection if species is not available or not matched
+  if (normalizedTitle) {
+    if (normalizedTitle.includes('chicken') || normalizedTitle.includes('poultry') || 
+        normalizedTitle.includes('broiler') || normalizedTitle.includes('layer') ||
+        normalizedTitle.includes('chick') || normalizedTitle.includes('hen') ||
+        normalizedTitle.includes('rooster') || normalizedTitle.includes('cockerel')) {
+      return '🐔';
+    }
+    if (normalizedTitle.includes('cattle') || normalizedTitle.includes('cow') || 
+        normalizedTitle.includes('bull') || normalizedTitle.includes('heifer') ||
+        normalizedTitle.includes('steer') || normalizedTitle.includes('beef') ||
+        normalizedTitle.includes('dairy') || normalizedTitle.includes('angus') ||
+        normalizedTitle.includes('brahman') || normalizedTitle.includes('nguni')) {
+      return '🐄';
+    }
+    if (normalizedTitle.includes('goat') || normalizedTitle.includes('boer')) {
+      return '🐐';
+    }
+    if (normalizedTitle.includes('sheep') || normalizedTitle.includes('lamb') ||
+        normalizedTitle.includes('dorper') || normalizedTitle.includes('merino')) {
+      return '🐑';
+    }
+    if (normalizedTitle.includes('pig') || normalizedTitle.includes('swine') ||
+        normalizedTitle.includes('hog') || normalizedTitle.includes('boar')) {
+      return '🐷';
+    }
+    if (normalizedTitle.includes('duck') || normalizedTitle.includes('duckling')) {
+      return '🦆';
+    }
+    if (normalizedTitle.includes('rabbit') || normalizedTitle.includes('bunny')) {
+      return '🐰';
+    }
+    if (normalizedTitle.includes('fish') || normalizedTitle.includes('aquaculture') ||
+        normalizedTitle.includes('tilapia') || normalizedTitle.includes('fry')) {
+      return '🐟';
+    }
+    if (normalizedTitle.includes('ostrich')) {
+      return '🦃';
+    }
+    if (normalizedTitle.includes('turkey')) {
+      return '🦃';
+    }
+  }
+
+  // Default fallback
+  return '🐾';
+};
+
+const ImageGallery = ({ media = [], species, title }) => {
   const images = media.filter(m => m.type === 'image');
   const videos = media.filter(m => m.type === 'video');
   const [activeIndex, setActiveIndex] = useState(0);
+  const [imageError, setImageError] = useState(false);
+
+  // Reset image error when active index changes
+  useEffect(() => {
+    setImageError(false);
+  }, [activeIndex]);
+
+  const placeholderIcon = getSpeciesIcon(species, title);
 
   if (!images.length && !videos.length) {
     return (
-      <div className="aspect-square bg-gray-200 rounded-lg flex items-center justify-center">
-        <div className="text-center text-gray-500">
-          <svg className="w-16 h-16 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
-          </svg>
-          <p>No images available</p>
-        </div>
+      <div className="aspect-square bg-gradient-to-br from-emerald-50 to-green-50 rounded-lg flex items-center justify-center">
+        <span className="text-9xl" style={{ fontSize: '8rem' }}>
+          {placeholderIcon}
+        </span>
       </div>
     );
   }
@@ -23,8 +135,8 @@ const ImageGallery = ({ media = [] }) => {
   return (
     <div className="space-y-3 lg:space-y-4">
       {/* Main Image/Video - Mobile optimized */}
-      <div className="aspect-square relative rounded-lg overflow-hidden border border-gray-200 bg-white">
-        {allMedia[activeIndex] ? (
+      <div className="aspect-square relative rounded-lg overflow-hidden border border-gray-200 bg-gradient-to-br from-emerald-50 to-green-50">
+        {allMedia[activeIndex] && !imageError ? (
           allMedia[activeIndex].type === 'video' ? (
             <video 
               src={allMedia[activeIndex].url} 
@@ -37,9 +149,16 @@ const ImageGallery = ({ media = [] }) => {
               src={allMedia[activeIndex].url} 
               alt="Livestock" 
               className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+              onError={() => setImageError(true)}
             />
           )
-        ) : null}
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <span className="text-9xl" style={{ fontSize: '8rem' }}>
+              {placeholderIcon}
+            </span>
+          </div>
+        )}
         
         {/* Navigation Arrows - Touch friendly */}
         {allMedia.length > 1 && (

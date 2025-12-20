@@ -1,19 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch } from 'react-redux';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   Button, Input, Label, Alert, AlertDescription,
-  Tabs, TabsContent, TabsList, TabsTrigger
+  Tabs, TabsContent, TabsList, TabsTrigger, Separator
 } from '../ui';
 import {
-  LogIn, UserPlus, AlertCircle, Mail, Lock, User, Phone
+  LogIn, UserPlus, ShoppingCart, AlertCircle, Mail, Lock, User, X
 } from 'lucide-react';
-import SocialLoginButtons from './SocialLoginButtons';
+import SocialLoginButtons from '../auth/SocialLoginButtons';
 import { useLoginMutation, useRegisterMutation } from '../../store/api/user.api';
 import { setUser, loadUserProfile } from '../../store/authSlice';
+import { useAuth } from '../../auth/AuthProvider';
+import { useToast } from '../../hooks/use-toast';
 
-const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
+const CheckoutAuthModal = ({ open, onClose, onContinueAsGuest, onAuthSuccess }) => {
   const dispatch = useDispatch();
+  const { isAuthenticated } = useAuth();
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -37,6 +41,16 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
     role: 'buyer'
   });
 
+  // Close modal if user becomes authenticated
+  useEffect(() => {
+    if (isAuthenticated && open) {
+      if (onAuthSuccess) {
+        onAuthSuccess();
+      }
+      onClose();
+    }
+  }, [isAuthenticated, open, onClose, onAuthSuccess]);
+
   // Handle login
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -55,28 +69,25 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
       }
       if (data.user) {
         localStorage.setItem('user', JSON.stringify(data.user));
-        // Update Redux immediately
         dispatch(setUser(data.user));
       }
       
-      // Refresh auth state to get latest user data
+      // Refresh auth state
       await dispatch(loadUserProfile(true));
       
-      // Call parent login handler
-      if (onLogin) {
-        onLogin(data);
-      }
+      toast({
+        title: "Login Successful!",
+        description: "Welcome back! Redirecting to checkout...",
+      });
       
-      // Handle return URL
-      if (returnTo) {
-        window.location.href = returnTo;
-      } else {
-        onClose();
+      if (onAuthSuccess) {
+        onAuthSuccess();
       }
+      onClose();
 
     } catch (error) {
       console.error('Login error:', error);
-      setError(error?.data?.detail || error?.message || 'Login failed');
+      setError(error?.data?.detail || error?.message || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }
@@ -98,107 +109,85 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
         throw new Error('Password must be at least 6 characters');
       }
 
-      const registrationPayload = {
-        email: registerData.email,
+      const data = await registerMutation({
+        email: registerData.email.trim(),
         password: registerData.password,
-        full_name: registerData.full_name,
-        role: registerData.role,
-        user_type: registerData.role
-      };
-
-      const data = await registerMutation(registrationPayload).unwrap();
+        full_name: registerData.full_name.trim(),
+        role: registerData.role
+      }).unwrap();
       
-      // Auto-login after registration
-      if (data.access_token) {
-        localStorage.setItem('token', data.access_token);
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-          // Update Redux immediately
-          dispatch(setUser(data.user));
-        }
-        
-        // Refresh auth state to get latest user data
-        await dispatch(loadUserProfile(true));
-        
-        if (onLogin) {
-          onLogin(data);
-        }
-        
-        if (returnTo) {
-          window.location.href = returnTo;
-        } else {
-          onClose();
-        }
-      } else {
-        // Switch to login tab if no auto-login
-        setActiveTab('login');
-        setError('Registration successful! Please log in.');
-      }
-
-    } catch (error) {
-      console.error('Registration error:', error);
-      setError(error?.data?.detail || error?.message || 'Registration failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Handle social login success
-  const handleSocialSuccess = async (data) => {
-    try {
-      // Store token and user data if not already stored by social auth hook
+      // Store token and user data
       if (data.access_token) {
         localStorage.setItem('token', data.access_token);
       }
       if (data.user) {
         localStorage.setItem('user', JSON.stringify(data.user));
-        // Update Redux immediately
         dispatch(setUser(data.user));
       }
       
-      // Refresh auth state to get latest user data
+      // Refresh auth state
       await dispatch(loadUserProfile(true));
       
-      // Call parent login handler
-      if (onLogin) {
-        onLogin(data);
-      }
+      toast({
+        title: "Registration Successful!",
+        description: "Account created! Redirecting to checkout...",
+      });
       
-      // Handle return URL
-      if (returnTo) {
-        window.location.href = returnTo;
-      } else {
-        onClose();
+      if (onAuthSuccess) {
+        onAuthSuccess();
       }
+      onClose();
+
     } catch (error) {
-      console.error('Social login success handler error:', error);
-      setError('Login successful but there was an error. Please try again.');
+      console.error('Register error:', error);
+      setError(error?.data?.detail || error?.message || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Handle social login error
-  const handleSocialError = (errorMessage) => {
-    setError(errorMessage || 'Social login failed');
+  const handleContinueAsGuest = () => {
+    if (onContinueAsGuest) {
+      onContinueAsGuest();
+    }
+    onClose();
   };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <LogIn className="h-5 w-5" />
-            Welcome to StockLot
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <ShoppingCart className="h-6 w-6 text-emerald-600" />
+            Complete Your Checkout
           </DialogTitle>
+          <DialogDescription>
+            Sign in to your account for faster checkout, order tracking, and exclusive deals. 
+            Or continue as a guest to complete your purchase.
+          </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="login">Log In</TabsTrigger>
-            <TabsTrigger value="register">Sign Up</TabsTrigger>
+            <TabsTrigger value="login" className="flex items-center gap-2">
+              <LogIn className="h-4 w-4" />
+              Sign In
+            </TabsTrigger>
+            <TabsTrigger value="register" className="flex items-center gap-2">
+              <UserPlus className="h-4 w-4" />
+              Create Account
+            </TabsTrigger>
           </TabsList>
 
           {/* Login Tab */}
-          <TabsContent value="login">
+          <TabsContent value="login" className="space-y-4 mt-4">
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <Label htmlFor="login-email">Email Address</Label>
@@ -212,6 +201,7 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
                     onChange={(e) => setLoginData(prev => ({...prev, email: e.target.value}))}
                     placeholder="your@email.com"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -228,43 +218,41 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
                     onChange={(e) => setLoginData(prev => ({...prev, password: e.target.value}))}
                     placeholder="Enter your password"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
 
-              {error && (
-                <Alert className="border-red-200 bg-red-50">
-                  <AlertCircle className="h-4 w-4 text-red-600" />
-                  <AlertDescription className="text-red-700">
-                    {error}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button 
+                type="submit" 
+                className="w-full bg-emerald-600 hover:bg-emerald-700" 
+                disabled={loading}
+              >
                 {loading ? 'Signing in...' : 'Sign In'}
               </Button>
-
-              <SocialLoginButtons
-                onSuccess={handleSocialSuccess}
-                onError={handleSocialError}
-              />
-
-              <p className="text-center text-sm text-gray-600">
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  className="text-blue-600 hover:underline"
-                  onClick={() => setActiveTab('register')}
-                >
-                  Sign up here
-                </button>
-              </p>
             </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <Separator />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+              </div>
+            </div>
+
+            <SocialLoginButtons 
+              onSuccess={(data) => {
+                if (onAuthSuccess) {
+                  onAuthSuccess();
+                }
+                onClose();
+              }}
+            />
           </TabsContent>
 
           {/* Register Tab */}
-          <TabsContent value="register">
+          <TabsContent value="register" className="space-y-4 mt-4">
             <form onSubmit={handleRegister} className="space-y-4">
               <div>
                 <Label htmlFor="register-name">Full Name</Label>
@@ -276,8 +264,9 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
                     className="pl-10"
                     value={registerData.full_name}
                     onChange={(e) => setRegisterData(prev => ({...prev, full_name: e.target.value}))}
-                    placeholder="Your full name"
+                    placeholder="John Doe"
                     required
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -294,21 +283,9 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
                     onChange={(e) => setRegisterData(prev => ({...prev, email: e.target.value}))}
                     placeholder="your@email.com"
                     required
+                    disabled={loading}
                   />
                 </div>
-              </div>
-
-              <div>
-                <Label htmlFor="register-role">I want to</Label>
-                <select
-                  id="register-role"
-                  className="w-full p-2 border rounded-md"
-                  value={registerData.role}
-                  onChange={(e) => setRegisterData(prev => ({...prev, role: e.target.value}))}
-                >
-                  <option value="buyer">Buy livestock</option>
-                  <option value="seller">Sell livestock</option>
-                </select>
               </div>
 
               <div>
@@ -321,69 +298,80 @@ const LoginGate = ({ open, onClose, onLogin, returnTo }) => {
                     className="pl-10"
                     value={registerData.password}
                     onChange={(e) => setRegisterData(prev => ({...prev, password: e.target.value}))}
-                    placeholder="Choose a password"
-                    minLength={6}
+                    placeholder="At least 6 characters"
                     required
+                    minLength={6}
+                    disabled={loading}
                   />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">At least 6 characters</p>
               </div>
 
               <div>
-                <Label htmlFor="register-confirm">Confirm Password</Label>
+                <Label htmlFor="register-confirm-password">Confirm Password</Label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <Input
-                    id="register-confirm"
+                    id="register-confirm-password"
                     type="password"
                     className="pl-10"
                     value={registerData.confirmPassword}
                     onChange={(e) => setRegisterData(prev => ({...prev, confirmPassword: e.target.value}))}
                     placeholder="Confirm your password"
                     required
+                    minLength={6}
+                    disabled={loading}
                   />
                 </div>
               </div>
 
-              {error && (
-                <Alert className="border-red-200 bg-red-50">
-                  <AlertCircle className="h-4 w-4 text-red-600" />
-                  <AlertDescription className="text-red-700">
-                    {error}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <Button type="submit" className="w-full" disabled={loading}>
-                <UserPlus className="h-4 w-4 mr-2" />
+              <Button 
+                type="submit" 
+                className="w-full bg-emerald-600 hover:bg-emerald-700" 
+                disabled={loading}
+              >
                 {loading ? 'Creating account...' : 'Create Account'}
               </Button>
-
-              <SocialLoginButtons
-                onSuccess={handleSocialSuccess}
-                onError={handleSocialError}
-              />
-
-              <p className="text-center text-sm text-gray-600">
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  className="text-blue-600 hover:underline"
-                  onClick={() => setActiveTab('login')}
-                >
-                  Sign in here
-                </button>
-              </p>
             </form>
+
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <Separator />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
+              </div>
+            </div>
+
+            <SocialLoginButtons 
+              onSuccess={(data) => {
+                if (onAuthSuccess) {
+                  onAuthSuccess();
+                }
+                onClose();
+              }}
+            />
           </TabsContent>
         </Tabs>
 
-        <p className="text-xs text-gray-500 text-center mt-4">
-          By signing up, you agree to our Terms of Service and Privacy Policy.
-        </p>
+        <Separator />
+
+        <div className="space-y-3">
+          <Button
+            variant="outline"
+            className="w-full border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            onClick={handleContinueAsGuest}
+            disabled={loading}
+          >
+            Continue as Guest
+          </Button>
+          <p className="text-xs text-center text-gray-500">
+            You can create an account later to track your orders and save your information.
+          </p>
+        </div>
       </DialogContent>
     </Dialog>
   );
 };
 
-export default LoginGate;
+export default CheckoutAuthModal;
+

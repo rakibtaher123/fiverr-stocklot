@@ -15,15 +15,15 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '../../auth/AuthProvider';
-import { useGetOrdersQuery } from '../../store/api/orders.api';
+import { useGetOrdersQuery, useGetUserOrdersQuery } from '../../store/api/orders.api';
 
 const MyOrders = () => {
   const { user } = useAuth();
   const isAuth = true;
-  console.log('isAuth for my order', isAuth);
+  // console.log('isAuth for my order', isAuth);
   // to match the variable name in the API call
  
-  console.log('user for my order', user)
+  // console.log('user for my order', user)
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -37,9 +37,10 @@ const MyOrders = () => {
 
   // Orders API
 // const { data: ordersData } = useGetOrdersQuery({ isAuth: isAuthenticated });
-  const { data: ordersData, isLoading, error, refetch } = useGetOrdersQuery({ isAuth });
-  console.log('ordersData', ordersData, isLoading, error);
-
+  // const { data: ordersData, isLoading, error, refetch } = useGetOrdersQuery({ isAuth });
+  // console.log('ordersData', ordersData, isLoading, error);
+  const { data: ordersData, isLoading, error } = useGetUserOrdersQuery();
+  console.log('ordersData', ordersData);
   // Support multiple formats
   const orders = Array.isArray(ordersData)
     ? ordersData
@@ -132,10 +133,10 @@ const MyOrders = () => {
   };
 
   // Filtering
-  const filteredOrders = orders.filter((order) => {
+  const filteredOrders = orders?.filter((order) => {
     const matchesSearch =
-      order.id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.seller_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      order.id?.toLowerCase()?.includes(searchTerm.toLowerCase()) ||
+      order?.seller_name?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus =
       statusFilter === 'all' || order.status?.toLowerCase() === statusFilter;
@@ -270,7 +271,7 @@ const MyOrders = () => {
                     {order.status === 'shipped' && (
                       <Button
                         className="bg-emerald-600 hover:bg-emerald-700"
-                        onClick={() => window.location.href = `/orders/${order.id}/tracking`}
+                        onClick={() => window.location.href = `/orders/${order?.id}/tracking`}
                       >
                         <Truck className="h-4 w-4 mr-2" />
                         Track Order

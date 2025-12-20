@@ -4,10 +4,10 @@ import { Button } from '@/components/ui';
 import { Badge } from '@/components/ui';
 import { ShoppingBag, ShoppingCart } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useGetOrdersQuery, useConfirmDeliveryMutation } from '@/store/api/orders.api';
+import { useGetUserOrdersQuery, useConfirmDeliveryMutation } from '@/store/api/orders.api';
 
 function UserOrders() {
-  const { data: ordersData, isLoading: loading, error, refetch } = useGetOrdersQuery({});
+  const { data: ordersData, isLoading: loading, error, refetch } = useGetUserOrdersQuery();
   const [confirmDeliveryMutation] = useConfirmDeliveryMutation();
 
   // Extract orders from API response

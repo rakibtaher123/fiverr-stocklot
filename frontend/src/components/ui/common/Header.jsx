@@ -2,6 +2,7 @@ import { useAuth } from "@/auth/AuthProvider";
 // import { Link, Menu, x, Search, X } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import { Button, Input, Badge, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger, Avatar, AvatarFallback } from "..";
 // import { Button, Input } from "../ui";
 import LocationPicker from "@/components/location/LocationPicker";
@@ -11,6 +12,7 @@ import NotificationBell from "@/components/notifications/NotificationBell";
 import ContextSwitcher from "@/components/seller/ContextSwitcher";
 import api from '@/utils/apiHelper';
 import { useLazyGetCartQuery } from "@/store/api/cart.api";
+import { selectCartItemCount } from "@/store/cartSlice";
 // import { Menu } from "@radix-ui/react-menubar";
 
 // Header component
@@ -27,6 +29,9 @@ function Header() {
   const isLoading = auth.status === 'loading';
   const hasFetchedCart = useRef(false);
   const userId = user?.id;
+
+  // Get cart count from Redux for guest users
+  const reduxCartCount = useSelector(selectCartItemCount);
 
   // Use lazy query to only fetch when explicitly called (when user is authenticated)
   const [getCart, {data: cartData, isSuccess: isCartSuccess, isError: isCartError}] = useLazyGetCartQuery();
@@ -46,10 +51,8 @@ function Header() {
     // Reset fetch flag when user logs out
     if (!isAuthenticated || !user) {
       hasFetchedCart.current = false;
-      // Update cart count from localStorage for guest users
-      const guestCart = JSON.parse(localStorage.getItem('guest_cart') || '[]');
-      const guestCartCount = guestCart.reduce((sum, item) => sum + (item.qty || 1), 0);
-      setCartItemCount(guestCartCount);
+      // Update cart count from Redux for guest users
+      setCartItemCount(reduxCartCount);
       return;
     }
 
@@ -92,31 +95,29 @@ function Header() {
 
   // Initialize cart count on mount and when auth status changes
   useEffect(() => {
-    const updateCartCount = () => {
-      if (!isAuthenticated) {
-        // For guest users, get count from localStorage
-        const guestCart = JSON.parse(localStorage.getItem('guest_cart') || '[]');
-        const guestCartCount = guestCart.reduce((sum, item) => sum + (item.qty || 1), 0);
-        setCartItemCount(guestCartCount);
-      }
-    };
-    
-    // Update on mount and when auth changes
-    updateCartCount();
-    
-    // Also listen for storage changes (when cart is updated in another tab/window)
-    const handleStorageChange = (e) => {
-      if (e.key === 'guest_cart' && !isAuthenticated) {
-        updateCartCount();
-      }
-    };
-    
-    window.addEventListener('storage', handleStorageChange);
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, [isAuthenticated]);
+    if (!isAuthenticated) {
+      // For guest users, get count from Redux
+      setCartItemCount(reduxCartCount);
+    }
+  }, [isAuthenticated, reduxCartCount]);
+  
+  // Listen for storage changes (when cart is updated in another tab/window)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      const handleStorageChange = (e) => {
+        if (e.key === 'cart') {
+          // Cart updated in another tab, update from Redux
+          setCartItemCount(reduxCartCount);
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    }
+  }, [isAuthenticated, reduxCartCount]);
 
   // Update cart count when cart data changes
   useEffect(() => {
@@ -127,10 +128,10 @@ function Header() {
 
   // Listen for cart updates from both guest and authenticated users
   useEffect(() => {
-    const handleCartUpdate = (event) => {
-      // For guest users, update count from event
-      if (!isAuthenticated && event.detail?.count !== undefined) {
-        setCartItemCount(event.detail.count);
+    const handleCartUpdate = () => {
+      // For guest users, update count from Redux
+      if (!isAuthenticated) {
+        setCartItemCount(reduxCartCount);
       }
     };
 
@@ -152,7 +153,7 @@ function Header() {
       window.removeEventListener('cartUpdated', handleCartUpdate);
       window.removeEventListener('cartRefetch', handleCartRefetch);
     };
-  }, [isAuthenticated, user, getCartRef]);
+  }, [isAuthenticated, user, getCartRef, reduxCartCount]);
   // const fetchCartCount = async () => {
   //   try {
   //     // Use new API client with automatic cookie handling
@@ -165,7 +166,12 @@ function Header() {
   // };
 
   const isSeller = user && (user.roles || []).includes('seller');
+  const isBuyer = user && (user.roles || []).includes('buyer');
   const isAdmin = user && (user.roles || []).includes('admin');
+
+  console.log('user', user);
+
+
 
   const handleSearch = (e) => {
     if (e.key === 'Enter' && searchTerm.trim()) {
@@ -232,7 +238,6 @@ function Header() {
 
           {/* User Menu / Auth Buttons */}
           <div className="flex items-center space-x-4">
-            {user ? (
               <div className="flex items-center space-x-3">
                 {/* Shopping Cart - Always visible */}
                 <Button
@@ -248,7 +253,8 @@ function Header() {
                     </Badge>
                   )}
                 </Button>
-                
+            {user ? (
+                <>
                 <NotificationBell />
                 
                 {/* Messages/Inbox Button */}
@@ -286,6 +292,7 @@ function Header() {
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>My Account</DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    
                     
                     {/* Profile & Settings */}
                     <DropdownMenuItem onClick={() => navigate('/profile')}>
@@ -366,7 +373,7 @@ function Header() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-              </div>
+                </>
             ) : (
               <div className="flex items-center space-x-3">
                 <Button 
@@ -384,6 +391,8 @@ function Header() {
                 </Button>
               </div>
             )}
+              </div>
+
 
             {/* Mobile Menu Button */}
             <Button
@@ -419,7 +428,7 @@ function Header() {
           </div>
 
           {/* Context Switcher for Sellers */}
-          {isSeller && (
+          {isSeller || isBuyer && (
             <div className="mt-3 flex justify-center">
               <ContextSwitcher />
             </div>

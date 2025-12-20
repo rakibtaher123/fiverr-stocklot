@@ -1,10 +1,19 @@
 import os
 import logging
+import time
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 import uuid
 import json
+
+def generate_tracking_number() -> str:
+    """Generate a unique tracking number in format: TRK + timestamp + random string"""
+    timestamp = int(time.time())
+    random_part = uuid.uuid4().hex[:8].upper()
+    tracking_num = f"TRK{timestamp}{random_part}"
+    logger.debug(f"Generated tracking number: {tracking_num}")
+    return tracking_num
 
 logger = logging.getLogger(__name__)
 
@@ -100,8 +109,12 @@ class OrderManagementService:
             
             # 6. Create order group
             order_group_id = str(uuid.uuid4())
+            tracking_num = generate_tracking_number()
+            logger.info(f"Generated tracking number for buy request order: {tracking_num}")
+            
             order_group = {
                 "id": order_group_id,
+                "tracking_number": tracking_num,
                 "buy_request_id": request_id,
                 "buyer_id": buyer_id,
                 "status": OrderGroupStatus.PENDING_PAYMENT.value,
@@ -149,6 +162,7 @@ class OrderManagementService:
             
             # 10. Insert all records
             await self.db.order_groups.insert_one(order_group)
+            logger.info(f"✅ Order group created with ID: {order_group_id}, Tracking: {tracking_num}")
             await self.db.seller_orders.insert_one(seller_order)
             await self.db.escrow_records.insert_one(escrow_record)
             

@@ -95,6 +95,7 @@ export default function EnhancedRegister() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [manualUserTypeTouched, setManualUserTypeTouched] = useState(false);
 
   // Use Redux RTK Query hooks
   const [register] = useRegisterMutation();
@@ -105,6 +106,10 @@ export default function EnhancedRegister() {
       ...prev,
       [field]: value
     }));
+
+    if (field === 'user_type') {
+      setManualUserTypeTouched(true);
+    }
 
     // Auto-generate organization handle from name
     if (field === 'org_name' && !formData.org_handle) {
@@ -121,7 +126,11 @@ export default function EnhancedRegister() {
     }
 
     // Auto-suggest buyer/seller type based on organization type
-    if (field === 'org_kind' && accountType === 'organization') {
+    if (
+      field === 'org_kind' &&
+      accountType === 'organization' &&
+      !manualUserTypeTouched
+    ) {
       const orgType = ORGANIZATION_TYPES.find(type => type.value === value);
       if (orgType && orgType.typical_role) {
         setFormData(prev => ({
@@ -130,20 +139,6 @@ export default function EnhancedRegister() {
         }));
       }
     }
-  };
-
-  // Map front-end user_type to backend role (backend expects 'buyer'|'seller'|'admin')
-  const mapUserTypeToRole = (userType) => {
-    if (!userType) return 'buyer';
-    const ut = userType.toString().toLowerCase();
-    if (ut === 'buyer') return 'buyer';
-    if (ut === 'seller') return 'seller';
-    if (ut === 'both') {
-      // backend doesn't accept 'both' — choose 'seller' as safe default (change if you prefer)
-      return 'seller';
-    }
-    // fallback
-    return 'buyer';
   };
 
   // Handle social login success
@@ -178,8 +173,7 @@ export default function EnhancedRegister() {
         email: formData.email,
         phone: formData.phone,
         password: formData.password,
-        // IMPORTANT: map front-end user_type to backend 'role' string (lowercase)
-        role: mapUserTypeToRole(formData.user_type)
+        user_type: formData.user_type
       };
 
       // debug: see what we're sending
@@ -318,7 +312,14 @@ export default function EnhancedRegister() {
 
         <Card className="border-0 shadow-xl">
           <CardHeader className="pb-4">
-            <Tabs value={accountType} onValueChange={setAccountType} className="w-full">
+            <Tabs
+              value={accountType}
+              onValueChange={(value) => {
+                setAccountType(value);
+                setManualUserTypeTouched(false);
+              }}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-2 h-16">
                 <TabsTrigger 
                   value="individual" 

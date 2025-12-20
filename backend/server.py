@@ -849,6 +849,14 @@ def verify_password(password: str, hashed: str) -> bool:
     """Verify password against hash"""
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
+def generate_tracking_number() -> str:
+    """Generate a unique tracking number in format: TRK + timestamp + random string"""
+    timestamp = int(time.time())
+    random_part = uuid.uuid4().hex[:8].upper()
+    tracking_num = f"TRK{timestamp}{random_part}"
+    logger.debug(f"Generated tracking number: {tracking_num}")
+    return tracking_num
+
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Get current authenticated user"""
     if not credentials:
@@ -1943,8 +1951,13 @@ async def create_authenticated_order(
         grand_total = quote_summary.get("grand_total") or 0
         delivery_total = quote_summary.get("delivery_total") or 0
         
+        # Generate tracking number
+        tracking_num = generate_tracking_number()
+        logger.info(f"Generated tracking number for authenticated order: {tracking_num}")
+        
         order_group = {
             "id": str(uuid.uuid4()),
+            "tracking_number": tracking_num,
             "buyer_user_id": current_user.id,
             "status": "PENDING",
             "currency": "ZAR",
@@ -1954,6 +1967,7 @@ async def create_authenticated_order(
             "created_at": datetime.now(timezone.utc)
         }
         await db.order_groups.insert_one(order_group)
+        logger.info(f"✅ Order group created with ID: {order_group['id']}, Tracking: {tracking_num}")
         
         # Create order contact (using authenticated user's info)
         order_contact = {
@@ -2945,6 +2959,20 @@ async def create_sample_listings():
 # API Routes
 
 # Authentication routes
+def resolve_user_roles(user_type: Optional[str], legacy_role: Optional[UserRole] = None) -> List[UserRole]:
+    """Convert the incoming user_type string into the appropriate list of UserRole enums."""
+    normalized = (user_type or "").strip().lower()
+    if normalized == "both":
+        return [UserRole.BUYER, UserRole.SELLER]
+    if normalized == "seller":
+        return [UserRole.SELLER]
+    if normalized == "buyer":
+        return [UserRole.BUYER]
+    if legacy_role:
+        return [legacy_role]
+    return [UserRole.BUYER]
+
+
 @api_router.post("/auth/register")
 async def register_user(user_data: UserCreate, request: Request):
     """Register a new user with referral attribution"""
@@ -2962,7 +2990,7 @@ async def register_user(user_data: UserCreate, request: Request):
             email=user_data.email,
             full_name=user_data.full_name,
             phone=user_data.phone,
-            roles=[user_data.role]
+            roles=resolve_user_roles(user_data.user_type, user_data.role)
         )
         
         # Save to database
@@ -6166,8 +6194,13 @@ async def create_guest_order(request: Request, request_data: GuestOrderCreate):
         grand_total = quote_summary.get("grand_total") or 0
         delivery_total = quote_summary.get("delivery_total") or 0
         
+        # Generate tracking number
+        tracking_num = generate_tracking_number()
+        logger.info(f"Generated tracking number for guest order: {tracking_num}")
+        
         order_group = {
             "id": str(uuid.uuid4()),
+            "tracking_number": tracking_num,
             "buyer_user_id": user_id,
             "status": "PENDING",
             "currency": "ZAR",
@@ -6177,6 +6210,7 @@ async def create_guest_order(request: Request, request_data: GuestOrderCreate):
             "created_at": datetime.now(timezone.utc)
         }
         await db.order_groups.insert_one(order_group)
+        logger.info(f"✅ Guest order group created with ID: {order_group['id']}, Tracking: {tracking_num}")
         
         # Create order contact
         order_contact = {
@@ -6349,6 +6383,206 @@ async def get_order_status(order_group_id: str):
     except Exception as e:
         logger.error(f"Error fetching order status: {e}")
         raise HTTPException(status_code=500, detail="Failed to fetch order status")
+
+@api_router.get("/public/orders/track/{tracking_number}")
+async def get_public_order_tracking(tracking_number: str):
+    """Public endpoint to track order status by tracking_number without authentication"""
+    try:
+        # Validate tracking number
+        if not tracking_number or not tracking_number.strip():
+            raise HTTPException(status_code=400, detail="Tracking number is required")
+        
+        # Normalize tracking number (uppercase, strip whitespace)
+        tracking_number = tracking_number.strip().upper()
+        logger.info(f"🔍 Searching for tracking number: {tracking_number}")
+        
+        # Get order group by tracking_number (exact match first)
+        order_group = await db.order_groups.find_one({"tracking_number": tracking_number})
+        
+        if not order_group:
+            # Try case-insensitive search
+            order_group = await db.order_groups.find_one({
+                "tracking_number": {"$regex": f"^{tracking_number}$", "$options": "i"}
+            })
+        
+        if not order_group:
+            # Log for debugging
+            logger.warning(f"❌ Tracking number not found: {tracking_number}")
+            # Check if any orders exist with tracking_number field
+            total_with_tracking = await db.order_groups.count_documents({"tracking_number": {"$exists": True, "$ne": None}})
+            total_orders = await db.order_groups.count_documents({})
+            logger.info(f"📊 Total orders: {total_orders}, Orders with tracking: {total_with_tracking}")
+            
+            # Get a sample to show what format exists
+            sample_order = await db.order_groups.find_one({"tracking_number": {"$exists": True, "$ne": None}})
+            if sample_order:
+                logger.info(f"📦 Sample tracking number format: {sample_order.get('tracking_number')}")
+            
+            raise HTTPException(status_code=404, detail="Order not found. Please check your tracking number.")
+        
+        logger.info(f"✅ Found order group: {order_group.get('id')} with tracking: {order_group.get('tracking_number')}")
+        
+        # Remove MongoDB _id
+        if "_id" in order_group:
+            del order_group["_id"]
+        
+        # Get seller orders
+        seller_orders = await db.seller_orders.find({"order_group_id": order_group["id"]}).to_list(length=None)
+        for so in seller_orders:
+            if "_id" in so:
+                del so["_id"]
+        
+        # Get order items for each seller order (limited info for public)
+        orders_with_items = []
+        for seller_order in seller_orders:
+            order_items = await db.order_items.find({"seller_order_id": seller_order["id"]}).to_list(length=None)
+            for item in order_items:
+                if "_id" in item:
+                    del item["_id"]
+            
+            # Get seller info (only name for privacy)
+            seller = await db.users.find_one({"id": seller_order["seller_id"]})
+            seller_name = seller.get("full_name") or seller.get("name") or "Unknown Seller" if seller else "Unknown Seller"
+            
+            # Format order with items (limited info for public tracking)
+            order_with_items = {
+                "id": seller_order["id"],
+                "seller_name": seller_name,
+                "status": seller_order.get("status", "PENDING"),
+                "delivery_status": seller_order.get("delivery_status", seller_order.get("status", "PENDING")),
+                "items": [
+                    {
+                        "title": item.get("title", item.get("listing_title", "Unknown Item")),
+                        "quantity": item.get("qty", item.get("quantity", 1)),
+                        "unit": item.get("unit", "head"),
+                    }
+                    for item in order_items
+                ],
+                "created_at": seller_order.get("created_at").isoformat() if seller_order.get("created_at") and hasattr(seller_order.get("created_at"), 'isoformat') else (str(seller_order.get("created_at", "")) if seller_order.get("created_at") else None)
+            }
+            orders_with_items.append(order_with_items)
+        
+        # Get order contact (limited info for privacy)
+        order_contact = await db.order_contacts.find_one({"order_group_id": order_group["id"]})
+        contact_info = {}
+        if order_contact:
+            if "_id" in order_contact:
+                del order_contact["_id"]
+            # Only return shipping address, not full contact details
+            if order_contact.get("address_json"):
+                contact_info["shipping_address"] = order_contact.get("address_json")
+        
+        # Serialize datetime fields
+        created_at = order_group.get("created_at")
+        if created_at and hasattr(created_at, 'isoformat'):
+            created_at = created_at.isoformat()
+        
+        updated_at = order_group.get("updated_at")
+        if updated_at and hasattr(updated_at, 'isoformat'):
+            updated_at = updated_at.isoformat()
+        
+        # Build public response (limited information)
+        response = {
+            "id": order_group.get("id"),
+            "tracking_number": order_group.get("tracking_number"),
+            "status": order_group.get("status", "PENDING"),
+            "grand_total": order_group.get("grand_total", 0),
+            "items_count": order_group.get("items_count", 0),
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "orders": orders_with_items,
+            "shipping_address": contact_info.get("shipping_address")
+        }
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error fetching public order tracking: {e}")
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(error_trace)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to fetch order tracking information: {str(e)}"
+        )
+
+@api_router.get("/public/orders/sample-tracking")
+async def get_sample_tracking_number():
+    """Get a sample tracking number from database for testing (public endpoint)"""
+    try:
+        # Find any order with a tracking_number
+        sample_order = await db.order_groups.find_one(
+            {"tracking_number": {"$exists": True, "$ne": None}},
+            {"tracking_number": 1, "id": 1, "status": 1, "created_at": 1}
+        )
+        
+        # Get all orders with tracking numbers (for listing)
+        all_orders_with_tracking = await db.order_groups.find(
+            {"tracking_number": {"$exists": True, "$ne": None}},
+            {"tracking_number": 1, "id": 1, "status": 1, "created_at": 1}
+        ).sort("created_at", -1).limit(10).to_list(length=10)
+        
+        if not sample_order:
+            # Check if there are any orders at all
+            total_orders = await db.order_groups.count_documents({})
+            orders_without_tracking = await db.order_groups.count_documents({"tracking_number": {"$exists": False}})
+            
+            # Get all order IDs (even without tracking numbers)
+            all_orders = await db.order_groups.find(
+                {},
+                {"id": 1, "status": 1, "created_at": 1, "tracking_number": 1}
+            ).sort("created_at", -1).limit(10).to_list(length=10)
+            
+            order_list = []
+            for order in all_orders:
+                if "_id" in order:
+                    del order["_id"]
+                order_list.append({
+                    "order_id": order.get("id"),
+                    "tracking_number": order.get("tracking_number", "N/A"),
+                    "status": order.get("status"),
+                    "created_at": order.get("created_at").isoformat() if order.get("created_at") and hasattr(order.get("created_at"), 'isoformat') else str(order.get("created_at", ""))
+                })
+            
+            return {
+                "message": "No orders with tracking numbers found",
+                "total_orders": total_orders,
+                "orders_without_tracking": orders_without_tracking,
+                "suggestion": "Create a new order to generate a tracking number",
+                "all_orders": order_list
+            }
+        
+        # Remove MongoDB _id from sample
+        if "_id" in sample_order:
+            del sample_order["_id"]
+        
+        # Format all orders list
+        orders_list = []
+        for order in all_orders_with_tracking:
+            if "_id" in order:
+                del order["_id"]
+            orders_list.append({
+                "order_id": order.get("id"),
+                "tracking_number": order.get("tracking_number"),
+                "status": order.get("status"),
+                "created_at": order.get("created_at").isoformat() if order.get("created_at") and hasattr(order.get("created_at"), 'isoformat') else str(order.get("created_at", ""))
+            })
+        
+        return {
+            "sample_tracking_number": sample_order.get("tracking_number"),
+            "order_id": sample_order.get("id"),
+            "status": sample_order.get("status"),
+            "created_at": sample_order.get("created_at").isoformat() if sample_order.get("created_at") and hasattr(sample_order.get("created_at"), 'isoformat') else str(sample_order.get("created_at", "")),
+            "message": "Use this tracking number to test the tracking page",
+            "all_orders_with_tracking": orders_list,
+            "total_orders_with_tracking": len(orders_list)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching sample tracking number: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch sample tracking number")
 
 # Listing routes
 @api_router.post("/listings", response_model=Listing)
@@ -10436,7 +10670,7 @@ async def register_user_enhanced(
             email=user_data.email,
             full_name=user_data.full_name,
             phone=user_data.phone,
-            roles=[user_data.role]
+            roles=resolve_user_roles(user_data.user_type, user_data.role)
         )
         
         # Save to database
@@ -17057,25 +17291,96 @@ async def get_order_group(
     order_group_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    """Get order group details"""
+    """Get order group details with all related data"""
     if not current_user:
         raise HTTPException(status_code=401, detail="Authentication required")
     
     try:
-        order_group = await order_management_service.get_order_group(
-            order_group_id=order_group_id,
-            user_id=current_user.id
-        )
+        # Get order group - check both buyer_id and buyer_user_id
+        order_group = await db.order_groups.find_one({
+            "id": order_group_id,
+            "$or": [
+                {"buyer_id": current_user.id},
+                {"buyer_user_id": current_user.id}
+            ]
+        })
         
         if not order_group:
             raise HTTPException(status_code=404, detail="Order not found")
         
-        return order_group
+        # Remove MongoDB _id
+        if "_id" in order_group:
+            del order_group["_id"]
+        
+        # Get seller orders
+        seller_orders = await db.seller_orders.find({"order_group_id": order_group_id}).to_list(length=None)
+        for so in seller_orders:
+            if "_id" in so:
+                del so["_id"]
+        
+        # Get order items for each seller order
+        orders_with_items = []
+        for seller_order in seller_orders:
+            order_items = await db.order_items.find({"seller_order_id": seller_order["id"]}).to_list(length=None)
+            for item in order_items:
+                if "_id" in item:
+                    del item["_id"]
+            
+            # Get seller info
+            seller = await db.users.find_one({"id": seller_order["seller_id"]})
+            seller_name = seller.get("full_name") or seller.get("name") or "Unknown Seller" if seller else "Unknown Seller"
+            
+            # Format order with items
+            order_with_items = {
+                "id": seller_order["id"],
+                "seller_id": seller_order["seller_id"],
+                "seller_name": seller_name,
+                "status": seller_order.get("status", "PENDING"),
+                "delivery_status": seller_order.get("delivery_status", seller_order.get("status", "PENDING")),
+                "total_amount": seller_order.get("total", seller_order.get("subtotal", 0) + seller_order.get("delivery", 0)),
+                "delivery_cost": seller_order.get("delivery", 0),
+                "subtotal": seller_order.get("subtotal", 0),
+                "items": [
+                    {
+                        "id": item.get("id"),
+                        "listing_id": item.get("listing_id"),
+                        "title": item.get("title", item.get("listing_title", "Unknown Item")),
+                        "listing_title": item.get("title", item.get("listing_title", "Unknown Item")),
+                        "quantity": item.get("qty", item.get("quantity", 1)),
+                        "qty": item.get("qty", item.get("quantity", 1)),
+                        "unit": item.get("unit", "head"),
+                        "price": item.get("price", 0),
+                        "unit_price": item.get("price", 0),
+                        "item_total": item.get("line_total", item.get("item_total", 0)),
+                        "species": item.get("species"),
+                        "product_type": item.get("product_type")
+                    }
+                    for item in order_items
+                ],
+                "created_at": seller_order.get("created_at")
+            }
+            orders_with_items.append(order_with_items)
+        
+        # Get order contact
+        order_contact = await db.order_contacts.find_one({"order_group_id": order_group_id})
+        if order_contact and "_id" in order_contact:
+            del order_contact["_id"]
+        
+        # Build complete response
+        response = {
+            **order_group,
+            "orders": orders_with_items,
+            "order_contact": order_contact or {}
+        }
+        
+        return response
         
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Get order group failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Failed to get order")
 
 @api_router.post("/orders/{order_group_id}/cancel")

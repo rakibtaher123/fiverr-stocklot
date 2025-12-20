@@ -13,7 +13,7 @@ import {
 import { useSmartSearchMutation } from "@/store/api/search.api";
 
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Input, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui";
-import { Brain, CheckCircle, Filter, MapPin, Search, Shield, Star, User, X, Bell } from "lucide-react";
+import { Brain, Filter, MapPin, Search, Shield, Star, User } from "lucide-react";
 import DeliverableFilterBar from "../geofence/DeliverableFilterBar";
 import ListingCard from "../listings/ListingCard";
 import OrderModal from "../listings/OrderModal";
@@ -39,7 +39,6 @@ function Marketplace() {
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showBiddingModal, setShowBiddingModal] = useState(false);
   const [selectedListing, setSelectedListing] = useState(null);
-  const [notifications, setNotifications] = useState([]);
   const [sortBy, setSortBy] = useState('newest');
   const [deliverableOnly, setDeliverableOnly] = useState(false);
   const [smartSearchQuery, setSmartSearchQuery] = useState('');
@@ -92,13 +91,21 @@ function Marketplace() {
   console.log('Smart search loading:', smartSearchLoading);
 
   // Derived state from API responses - handle different response formats
-  const categoryGroups = useMemo(() => {
-    if (!categoriesData) return [];
-    // Handle both array and object with categories property
-    if (Array.isArray(categoriesData)) return categoriesData;
-    if (categoriesData.categories) return categoriesData.categories;
-    return [];
-  }, [categoriesData]);
+const categoryGroups = useMemo(() => {
+  if (!categoriesData) return [];
+
+  const raw =
+    Array.isArray(categoriesData)
+      ? categoriesData
+      : categoriesData.categories || [];
+
+  // ✅ remove duplicates by id
+  const unique = Array.from(
+  new Map(raw.map(item => [item.name, item])).values()
+);
+  return unique;
+}, [categoriesData]);
+
   
   const productTypes = useMemo(() => {
     if (!productTypesData) return [];
@@ -230,7 +237,6 @@ function Marketplace() {
           const timeRemaining = new Date(listing.auction_end_time) - new Date();
           if (timeRemaining <= 0 && !listing.expired) {
             // Auction ended
-            showNotification(`Auction ended: ${listing.title}`, 'info');
             return { ...listing, expired: true };
           }
         }
@@ -261,28 +267,7 @@ function Marketplace() {
       )
     );
 
-    if (bidData.type === 'buy_now') {
-      showNotification(`You successfully purchased ${updatedListing.title}!`, 'success');
-    } else {
-      showNotification(`Bid placed successfully on ${updatedListing.title}!`, 'success');
-    }
-
     setShowBiddingModal(false);
-  };
-
-  const showNotification = (message, type) => {
-    const notification = {
-      id: Date.now(),
-      message,
-      type,
-      timestamp: new Date()
-    };
-    setNotifications(prev => [...prev, notification]);
-    
-    // Remove notification after 5 seconds
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== notification.id));
-    }, 5000);
   };
 
   // Listings are now fetched via Redux hook - no need for fetchListings function
@@ -307,15 +292,6 @@ function Marketplace() {
       
       setListings(searchListings);
       
-      // Show success notification
-      const notification = {
-        id: Date.now(),
-        type: 'success',
-        message: `Found ${searchListings.length} results for "${smartSearchQuery}"${result.search.learned_from_query ? ' (Query learned for improvement!)' : ''}`,
-        duration: 5000
-      };
-      setNotifications(prev => [...prev, notification]);
-      
     } catch (error) {
       console.error('Smart search error:', error);
       
@@ -328,14 +304,6 @@ function Marketplace() {
       );
       
       setListings(fallbackListings);
-      
-      const notification = {
-        id: Date.now(),
-        type: 'info',
-        message: `Showing ${fallbackListings.length} results for "${smartSearchQuery}" (Basic search)`,
-        duration: 4000
-      };
-      setNotifications(prev => [...prev, notification]);
     }
   };
 
@@ -704,24 +672,6 @@ function Marketplace() {
           </CardContent>
         </Card>
 
-        {/* Notifications */}
-        <div className="fixed top-20 right-4 z-50 space-y-2">
-          {notifications.map(notification => (
-            <Card key={notification.id} className={`p-4 shadow-lg ${
-              notification.type === 'success' ? 'bg-green-50 border-green-200' :
-              notification.type === 'error' ? 'bg-red-50 border-red-200' :
-              'bg-blue-50 border-blue-200'
-            }`}>
-              <div className="flex items-center gap-2">
-                {notification.type === 'success' && <CheckCircle className="h-5 w-5 text-green-600" />}
-                {notification.type === 'error' && <X className="h-5 w-5 text-red-600" />}
-                {notification.type === 'info' && <Bell className="h-5 w-5 text-blue-600" />}
-                <p className="text-sm font-medium">{notification.message}</p>
-              </div>
-            </Card>
-          ))}
-        </div>
-
         {/* Market Summary */}
         <Card className="mb-6 border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50">
           <CardContent className="p-4">
@@ -880,7 +830,6 @@ function Marketplace() {
                     listing={listing} 
                     onViewDetails={handleViewDetails}
                     onBidPlaced={handlePlaceBid}
-                    showNotification={showNotification}
                     onAddToCart={cartUpdateCallback}
                   />
                 ))}

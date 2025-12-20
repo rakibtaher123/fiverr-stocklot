@@ -167,7 +167,12 @@ export default function Header() {
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>My Account</DropdownMenuLabel>
                     <DropdownMenuSeparator />
-                    
+                    {/* Switch User Role */}
+                    <DropdownMenuItem onClick={() => console.log("Switch user role")}>
+                      <User className="mr-2 h-4 w-4" />
+                      {isSeller ? "Switch to Buyer" : "Switch to Seller"}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                     {/* Profile & Settings */}
                     <DropdownMenuItem onClick={() => navigate('/profile')}>
                       <User className="mr-2 h-4 w-4" />
@@ -295,7 +300,7 @@ export default function Header() {
         </div>
 
         {/* Context Switcher for Sellers */}
-        {isSeller && (
+        {isSeller || isBuyer &&(
           <div className="mt-3 flex justify-center">
             <ContextSwitcher />
           </div>

@@ -46,7 +46,8 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     phone: Optional[str] = None
-    role: UserRole = UserRole.BUYER
+    role: Optional[UserRole] = None
+    user_type: Optional[str] = "buyer"
 
 class UserLogin(BaseModel):
     email: EmailStr

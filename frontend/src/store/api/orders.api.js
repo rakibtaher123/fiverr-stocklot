@@ -11,12 +11,15 @@ export const ordersApi = baseApi.injectEndpoints({
     }),
 
     getOrders: builder.query({
-      query: (params = {}) => ({
-        url: params.isAuth ? '/orders' : '/checkout/guest/order',
-        params,
-      }),
-      providesTags: ['Order'],
-    }),
+  query: (params = {}) => ({
+    url: params.isAuth ? '/orders' : '/checkout/guest/order',
+    params,
+    headers: params.isAuth ? {
+      Authorization: `Bearer ${localStorage.getItem('token')}`
+    } : {}
+  }),
+  providesTags: ['Order'],
+}),
 
     getOrderById: builder.query({
       query: (orderId) => `/orders/${orderId}`,
@@ -24,13 +27,22 @@ export const ordersApi = baseApi.injectEndpoints({
     }),
 
     getOrderGroup: builder.query({
-      query: (orderGroupId) => `/orders/${orderGroupId}`,
-      providesTags: (result, error, orderGroupId) => [{ type: 'Order', id: orderGroupId }],
+      query: ({ order_group_id, token }) => {
+        const headers = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        return {
+          url: `/orders/${order_group_id}`,
+          headers,
+        };
+      },
+      providesTags: (result, error, { order_group_id }) => [{ type: 'Order', id: order_group_id }],
     }),
 
     getOrderStatus: builder.query({
-      query: (orderGroupId) => `/orders/${orderGroupId}/status`,
-      providesTags: (result, error, orderGroupId) => [{ type: 'Order', id: orderGroupId }],
+      query: (order_group_id) => `/orders/${order_group_id}/status`,
+      providesTags: (result, error, order_group_id) => [{ type: 'Order', id: order_group_id }],
     }),
 
     updateOrderStatus: builder.mutation({
@@ -76,24 +88,27 @@ export const ordersApi = baseApi.injectEndpoints({
     }),
 
     createOrder: builder.mutation({
-     query: (args) => {
+      query: (args = {}) => {
       const body = args?.data || args;
-      const customHeaders = args?.header || {};
-      "user";
-      const token = localStorage.getItem('token');// auth provider
+        const customHeaders = args?.headers || {};
+        const orgContext =
+          customHeaders['X-Org-Context'] ||
+          localStorage.getItem('currentContext') ||
+          'user';
+        const token = localStorage.getItem('token');
+
       return {
         url: '/checkout/order',
         method: 'POST',
-        body: body,
-        headers:{
-          'X-org-context': orgContext,
-          ...(token? {Authorization: `Bearer ${token}`}:{}),
+          body,
+          headers: {
+            'X-Org-Context': orgContext,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...customHeaders,
         },
-
       };
      },
-     invalidatesTag: ['Order', 'Cart']
+      invalidatesTags: ['Order', 'Cart'],
     }),
 
     getOrderTracking: builder.query({
@@ -107,6 +122,19 @@ export const ordersApi = baseApi.injectEndpoints({
         params,
       }),
       providesTags: ['Order'],
+    }),
+
+    getPublicOrderTracking: builder.query({
+      query: (tracking_number) => ({
+        url: `/public/orders/track/${tracking_number}`,
+      }),
+      providesTags: (result, error, tracking_number) => [{ type: 'Order', id: tracking_number }],
+    }),
+
+    getSampleTrackingNumber: builder.query({
+      query: () => ({
+        url: '/public/orders/sample-tracking',
+      }),
     }),
   }),
   overrideExisting: false,
@@ -133,4 +161,8 @@ export const {
   useLazyGetOrderTrackingQuery,
   useGetOrderHistoryQuery,
   useLazyGetOrderHistoryQuery,
+  useGetPublicOrderTrackingQuery,
+  useLazyGetPublicOrderTrackingQuery,
+  useGetSampleTrackingNumberQuery,
+  useLazyGetSampleTrackingNumberQuery,
 } = ordersApi;

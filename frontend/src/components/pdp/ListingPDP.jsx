@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useDispatch } from 'react-redux';
 import ImageGallery from './ImageGallery';
 import SellerCard from './SellerCard';
 import RatingSummary from './RatingSummary';
@@ -18,11 +19,15 @@ import { useToast } from '../../hooks/use-toast';
 import { useGetListingPDPQuery } from '../../store/api/listings.api';
 import { useTrackAnalyticsMutation, useGetABTestConfigQuery, useTrackABEventMutation } from '../../store/api/admin.api';
 import { useAddToCartMutation, useLazyGetCartQuery } from '../../store/api/cart.api';
+import { addItem as addItemToCart, setCart } from '../../store/cartSlice';
+import Header from '../ui/common/Header';
+import Footer from '../ui/common/Footer';
 
 const ListingPDP = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
   const [qty, setQty] = useState(1);
@@ -228,39 +233,25 @@ const ListingPDP = () => {
         }
       }
       
-      // Guest user OR auth failed - add to localStorage cart
+      // Guest user OR auth failed - add to Redux cart slice
       // This runs if user is not authenticated OR if API call failed with 401
       if (!hasValidAuth) {
-        const guestCart = JSON.parse(localStorage.getItem('guest_cart') || '[]');
-        
-        // Check if item already exists in cart
-        const existingItemIndex = guestCart.findIndex(
-          item => item.listing_id === normalizedData.id
-        );
-        
-        if (existingItemIndex >= 0) {
-          // Update quantity if item exists
-          guestCart[existingItemIndex].qty += qtyParam;
-        } else {
-          // Add new item
-          guestCart.push({
-            listing_id: normalizedData.id,
-            title: normalizedData.title,
-            price: normalizedData.price,
-            qty: qtyParam,
-            unit: normalizedData.unit || 'head',
-            species: normalizedData.species,
-            product_type: normalizedData.product_type,
-            image: normalizedData.media?.[0]?.url || normalizedData.images?.[0],
-            seller_id: normalizedData.seller_id || normalizedData.seller?.id,
-          });
-        }
-        
-        localStorage.setItem('guest_cart', JSON.stringify(guestCart));
+        // Add to Redux cart slice (which syncs with localStorage)
+        dispatch(addItemToCart({
+          listing_id: normalizedData.id,
+          title: normalizedData.title,
+          price: normalizedData.price,
+          qty: qtyParam,
+          unit: normalizedData.unit || 'head',
+          species: normalizedData.species,
+          product_type: normalizedData.product_type,
+          image: normalizedData.media?.[0]?.url || normalizedData.images?.[0],
+          seller_id: normalizedData.seller_id || normalizedData.seller?.id,
+          location: normalizedData.location?.province,
+        }));
         
         // Update header cart count by dispatching a custom event
-        const cartCount = guestCart.reduce((sum, item) => sum + (item.qty || 1), 0);
-        window.dispatchEvent(new CustomEvent('cartUpdated', { detail: { count: cartCount } }));
+        window.dispatchEvent(new CustomEvent('cartUpdated', {}));
         
         // Show success toast for guest cart
         toast({
@@ -315,7 +306,7 @@ const ListingPDP = () => {
     } finally {
       setAddingToCart(false);
     }
-  }, [normalizedData, qty, addToCart, handleTrackAnalytics, handleTrackABEvents, isAuthenticated, user, token, toast, refetchCart]);
+  }, [normalizedData, qty, addToCart, handleTrackAnalytics, handleTrackABEvents, isAuthenticated, user, token, toast, refetchCart, dispatch]);
 
   const buyNow = async () => {
     if (!normalizedData) return;
@@ -323,54 +314,75 @@ const ListingPDP = () => {
     console.log('🛒 PDP BUY NOW: Using proper checkout flow with fees');
     
     try {
-      // Create cart item in the format expected by guest checkout
+      // Get token to check authentication
+      const currentToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      
+      // Check authentication status
+      const hasValidAuth = Boolean(
+        isAuthenticated && 
+        user && 
+        user.id && 
+        currentToken && 
+        currentToken.trim() !== '' &&
+        currentToken !== 'null' &&
+        currentToken !== 'undefined'
+      );
+      
+      // Create cart item
       const cartItem = {
         listing_id: normalizedData.id,
         title: normalizedData.title,
-        price: parseFloat(normalizedData.price),
+        price: parseFloat(normalizedData.price) || 0,
         qty: qty,
+        unit: normalizedData.unit || 'head',
         species: normalizedData.species || 'livestock',
-        product_type: normalizedData.product_type || 'animal'
+        product_type: normalizedData.product_type || 'animal',
+        image: normalizedData.media?.[0]?.url || normalizedData.images?.[0],
+        seller_id: normalizedData.seller_id || normalizedData.seller?.id,
+        location: normalizedData.location?.province,
       };
       
-      console.log('🛒 Adding item to localStorage cart:', cartItem);
+      // Clear existing cart items with same listing_id and add new one
+      // First, remove existing item from Redux if it exists
+      const currentCartItems = JSON.parse(localStorage.getItem('cart') || '{"items":[]}');
+      const filteredItems = (currentCartItems.items || []).filter(
+        item => item.listing_id !== normalizedData.id
+      );
       
-      // Add to localStorage cart for guest checkout
-      const existingCart = JSON.parse(localStorage.getItem('cart') || '[]');
+      // Create new cart with only this item
+      const newCart = { items: [cartItem] };
+      localStorage.setItem('cart', JSON.stringify(newCart));
       
-      // Remove any existing items with the same listing_id
-      const filteredCart = existingCart.filter(item => item.listing_id !== normalizedData.id);
+      // Update Redux cart - clear and add new item
+      // We need to set the entire cart to just this one item
+      dispatch(setCart({ items: [cartItem] }));
       
-      // Add the new item
-      filteredCart.push(cartItem);
+      console.log('🛒 Updated cart for buy now:', cartItem);
       
-      localStorage.setItem('cart', JSON.stringify(filteredCart));
-      
-      console.log('🛒 Updated cart in localStorage:', filteredCart);
-      
-      // Navigate to guest checkout
-      navigate('/checkout/guest');
+      // Navigate based on authentication status
+      if (hasValidAuth) {
+        navigate('/checkout');
+      } else {
+        navigate('/checkout/guest');
+      }
       
       // Track analytics
       handleTrackAnalytics('buy_now_click', { 
         quantity: qty, 
         price: normalizedData.price,
-        total_before_fees: normalizedData.price * qty
+        total_before_fees: normalizedData.price * qty,
+        is_guest: !hasValidAuth
       });
       handleTrackABEvents('conversion');
       
     } catch (error) {
       console.error('🚨 Buy Now error:', error);
       
-      // Fallback alert
-      alert(`⚠️ Buy Now Error
-
-There was an issue processing your request.
-
-Product: ${normalizedData.title}
-Quantity: ${qty}
-
-Please try again or add to cart first.`);
+      toast({
+        title: "Buy Now Error",
+        description: `There was an issue processing your request. Please try again or add to cart first.`,
+        variant: "destructive",
+      });
     }
   };
 
@@ -438,6 +450,9 @@ Please try again or add to cart first.`);
   const showCategoryBreadcrumb = normalizedData.category_group && normalizedData.category_group !== 'Livestock';
 
   return (
+    <>
+      <Header />
+     
     <main className="container mx-auto px-4 py-6">
       {/* SEO Meta */}
       <title>{seoTitle}</title>
@@ -468,7 +483,11 @@ Please try again or add to cart first.`);
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
         {/* Gallery */}
         <div className="lg:col-span-6">
-          <ImageGallery media={normalizedData.media || []} />
+          <ImageGallery 
+            media={normalizedData.media || []} 
+            species={normalizedData.species}
+            title={normalizedData.title}
+          />
         </div>
 
         {/* Summary / CTA */}
@@ -653,6 +672,8 @@ Please try again or add to cart first.`);
         }}
       />
     </main>
+    <Footer />
+    </>
   );
 };
 
